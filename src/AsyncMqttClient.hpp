@@ -163,4 +163,6 @@ class AsyncMqttClient {
   bool _sendDisconnect();
 
   uint16_t _getNextPacketId();
+
+  bool _messageAdd(char* message, const char* data, size_t len, int pos=-1, int size=-1);
 };

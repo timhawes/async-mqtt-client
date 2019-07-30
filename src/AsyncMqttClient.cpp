@@ -310,29 +310,31 @@ void AsyncMqttClient::_onConnect(AsyncClient* client) {
     return;
   }
 
-  _client.add(fixedHeader, 1 + remainingLengthLength);
-  _client.add(protocolNameLengthBytes, 2);
-  _client.add("MQTT", protocolNameLength);
-  _client.add(protocolLevel, 1);
-  _client.add(connectFlags, 1);
-  _client.add(keepAliveBytes, 2);
-  _client.add(clientIdLengthBytes, 2);
-  _client.add(_clientId, clientIdLength);
+  char message[neededSpace];
+  _messageAdd(message, fixedHeader, 1 + remainingLengthLength, 0, neededSpace);
+  _messageAdd(message, protocolNameLengthBytes, 2);
+  _messageAdd(message, "MQTT", protocolNameLength);
+  _messageAdd(message, protocolLevel, 1);
+  _messageAdd(message, connectFlags, 1);
+  _messageAdd(message, keepAliveBytes, 2);
+  _messageAdd(message, clientIdLengthBytes, 2);
+  _messageAdd(message, _clientId, clientIdLength);
   if (_willTopic != nullptr) {
-    _client.add(willTopicLengthBytes, 2);
-    _client.add(_willTopic, willTopicLength);
+    _messageAdd(message, willTopicLengthBytes, 2);
+    _messageAdd(message, _willTopic, willTopicLength);
 
-    _client.add(willPayloadLengthBytes, 2);
-    if (_willPayload != nullptr) _client.add(_willPayload, willPayloadLength);
+    _messageAdd(message, willPayloadLengthBytes, 2);
+    if (_willPayload != nullptr) _messageAdd(message, _willPayload, willPayloadLength);
   }
   if (_username != nullptr) {
-    _client.add(usernameLengthBytes, 2);
-    _client.add(_username, usernameLength);
+    _messageAdd(message, usernameLengthBytes, 2);
+    _messageAdd(message, _username, usernameLength);
   }
   if (_password != nullptr) {
-    _client.add(passwordLengthBytes, 2);
-    _client.add(_password, passwordLength);
+    _messageAdd(message, passwordLengthBytes, 2);
+    _messageAdd(message, _password, passwordLength);
   }
+  _client.add(message, neededSpace);
   _client.send();
   _lastClientActivity = millis();
   SEMAPHORE_GIVE();
@@ -641,8 +643,10 @@ void AsyncMqttClient::_sendAcks() {
     packetIdBytes[0] = pendingAck.packetId >> 8;
     packetIdBytes[1] = pendingAck.packetId & 0xFF;
 
-    _client.add(fixedHeader, 2);
-    _client.add(packetIdBytes, 2);
+    char message[neededAckSpace];
+    _messageAdd(message, fixedHeader, 2, 0, neededAckSpace);
+    _messageAdd(message, packetIdBytes, 2);
+    _client.add(message, neededAckSpace);
     _client.send();
 
     _toSendAcks.erase(_toSendAcks.begin() + i);
@@ -753,11 +757,13 @@ uint16_t AsyncMqttClient::subscribe(const char* topic, uint8_t qos) {
   packetIdBytes[0] = packetId >> 8;
   packetIdBytes[1] = packetId & 0xFF;
 
-  _client.add(fixedHeader, 1 + remainingLengthLength);
-  _client.add(packetIdBytes, 2);
-  _client.add(topicLengthBytes, 2);
-  _client.add(topic, topicLength);
-  _client.add(qosByte, 1);
+  char message[neededSpace];
+  _messageAdd(message, fixedHeader, 1 + remainingLengthLength, 0, neededSpace);
+  _messageAdd(message, packetIdBytes, 2);
+  _messageAdd(message, topicLengthBytes, 2);
+  _messageAdd(message, topic, topicLength);
+  _messageAdd(message, qosByte, 1);
+  _client.add(message, neededSpace);
   _client.send();
   _lastClientActivity = millis();
 
@@ -860,11 +866,13 @@ uint16_t AsyncMqttClient::publish(const char* topic, uint8_t qos, bool retain, c
     packetIdBytes[1] = packetId & 0xFF;
   }
 
-  _client.add(fixedHeader, 1 + remainingLengthLength);
-  _client.add(topicLengthBytes, 2);
-  _client.add(topic, topicLength);
-  if (qos != 0) _client.add(packetIdBytes, 2);
-  if (payload != nullptr) _client.add(payload, payloadLength);
+  char message[neededSpace];
+  _messageAdd(message, fixedHeader, 1 + remainingLengthLength, 0, neededSpace);
+  _messageAdd(message, topicLengthBytes, 2);
+  _messageAdd(message, topic, topicLength);
+  if (qos != 0) _messageAdd(message, packetIdBytes, 2);
+  if (payload != nullptr) _messageAdd(message, payload, payloadLength);
+  _client.add(message, neededSpace);
   _client.send();
   _lastClientActivity = millis();
 
@@ -874,4 +882,22 @@ uint16_t AsyncMqttClient::publish(const char* topic, uint8_t qos, bool retain, c
   } else {
     return 1;
   }
+}
+
+bool AsyncMqttClient::_messageAdd(char* message, const char* data, size_t len, int new_pos, int new_size) {
+  static size_t pos = 0;
+  static size_t size = 0;
+
+  if (new_pos != -1 && new_size != -1) {
+    pos = new_pos;
+    size = new_size;
+  }
+
+  if (pos + len <= size) {
+    memcpy(&message[pos], data, len);
+    pos = pos + len;
+    return true;
+  }
+
+  return false;
 }
